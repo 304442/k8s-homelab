@@ -1,0 +1,16 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: podinfo
+  namespace: default
+spec:
+  values:
+    replicaCount: 3
+    ingress:
+      enabled: true
+      className: nginx
+      hosts:
+      - host: podinfo.local
+        paths:
+        - path: /
+          pathType: Prefix
