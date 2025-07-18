@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: letsencrypt-email
+  namespace: caddy-system
+type: Opaque
+stringData:
+  email: admin@07c.me
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: caddy-letsencrypt-config
+  namespace: caddy-system
+data:
+  letsencrypt.json: |
+    {
+      "email": "admin@07c.me",
+      "agreed": true,
+      "ca": "https://acme-v02.api.letsencrypt.org/directory"
+    }

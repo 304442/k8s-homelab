@@ -4,4 +4,4 @@ resources:
 - sources/git-repository.yaml
 - controllers/
 - networking/
-- monitoring/
+- storage/

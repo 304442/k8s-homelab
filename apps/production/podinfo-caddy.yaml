@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: podinfo-caddy-config
+  namespace: default
+data:
+  Caddyfile: |
+    podinfo.07c.me {
+      reverse_proxy podinfo:9898
+      encode gzip
+      
+      log {
+        output stdout
+        format json
+      }
+      
+      tls {
+        email admin@07c.me
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo-caddy
+  namespace: default
+  labels:
+    app: podinfo-caddy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: podinfo-caddy
+  template:
+    metadata:
+      labels:
+        app: podinfo-caddy
+    spec:
+      containers:
+      - name: caddy
+        image: caddy:2.7-alpine
+        ports:
+        - containerPort: 80
+        - containerPort: 443
+        volumeMounts:
+        - name: caddy-config
+          mountPath: /etc/caddy/Caddyfile
+          subPath: Caddyfile
+        - name: caddy-data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+      volumes:
+      - name: caddy-config
+        configMap:
+          name: podinfo-caddy-config
+      - name: caddy-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: podinfo-caddy
+  namespace: default
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "podinfo-caddy"
+spec:
+  type: LoadBalancer
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  - name: https
+    port: 443
+    targetPort: 443
+  selector:
+    app: podinfo-caddy

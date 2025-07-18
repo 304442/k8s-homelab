@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: caddy-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caddy-ingress-controller
+  namespace: caddy-system
+  labels:
+    app: caddy-ingress-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: caddy-ingress-controller
+  template:
+    metadata:
+      labels:
+        app: caddy-ingress-controller
+    spec:
+      serviceAccountName: caddy-ingress-controller
+      containers:
+      - name: caddy
+        image: caddy:2.7-alpine
+        ports:
+        - containerPort: 80
+          name: http
+        - containerPort: 443
+          name: https
+        - containerPort: 2019
+          name: admin
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        volumeMounts:
+        - name: config
+          mountPath: /etc/caddy
+        - name: data
+          mountPath: /data
+        - name: config-volume
+          mountPath: /etc/caddy/Caddyfile
+          subPath: Caddyfile
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      volumes:
+      - name: config
+        emptyDir: {}
+      - name: data
+        emptyDir: {}
+      - name: config-volume
+        configMap:
+          name: caddy-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: caddy-config
+  namespace: caddy-system
+data:
+  Caddyfile: |
+    {
+      admin 0.0.0.0:2019
+      email admin@07c.me
+      acme_ca https://acme-v02.api.letsencrypt.org/directory
+    }
+
+    # Catch-all for ingress rules - will be dynamically updated
+    :80, :443 {
+      respond "Caddy Ingress Controller Ready" 200
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: caddy-ingress-controller
+  namespace: caddy-system
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "caddy-ingress"
+spec:
+  type: LoadBalancer
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  - name: https
+    port: 443
+    targetPort: 443
+    protocol: TCP
+  - name: admin
+    port: 2019
+    targetPort: 2019
+    protocol: TCP
+  selector:
+    app: caddy-ingress-controller
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: caddy-ingress-controller
+  namespace: caddy-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: caddy-ingress-controller
+rules:
+- apiGroups: [""]
+  resources: ["services", "endpoints", "secrets", "configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: caddy-ingress-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: caddy-ingress-controller
+subjects:
+- kind: ServiceAccount
+  name: caddy-ingress-controller
+  namespace: caddy-system
