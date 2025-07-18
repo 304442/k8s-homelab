@@ -18,7 +18,7 @@ spec:
         - key: kubernetes.io/hostname
           operator: In
           values:
-          - k0s-node
+          - vmi2713517
 ---
 apiVersion: v1
 kind: PersistentVolume
@@ -40,7 +40,7 @@ spec:
         - key: kubernetes.io/hostname
           operator: In
           values:
-          - k0s-node
+          - vmi2713517
 ---
 apiVersion: v1
 kind: PersistentVolume
@@ -62,4 +62,4 @@ spec:
         - key: kubernetes.io/hostname
           operator: In
           values:
-          - k0s-node
+          - vmi2713517
