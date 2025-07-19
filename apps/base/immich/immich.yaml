@@ -44,10 +44,12 @@ spec:
       - name: immich-server
         image: ghcr.io/immich-app/immich-server:release
         ports:
-        - containerPort: 3001
+        - containerPort: 2283
         env:
         - name: NODE_ENV
           value: "production"
+        - name: IMMICH_MODE
+          value: "server"
         envFrom:
         - secretRef:
             name: immich-secret
@@ -84,11 +86,11 @@ spec:
       containers:
       - name: immich-microservices
         image: ghcr.io/immich-app/immich-server:release
-        command: ["/bin/sh"]
-        args: ["./start-microservices.sh"]
         env:
         - name: NODE_ENV
           value: "production"
+        - name: IMMICH_MODE
+          value: "microservices"
         envFrom:
         - secretRef:
             name: immich-secret
@@ -152,8 +154,8 @@ metadata:
   namespace: immich
 spec:
   ports:
-  - port: 3001
-    targetPort: 3001
+  - port: 2283
+    targetPort: 2283
   selector:
     app: immich-server
 ---
