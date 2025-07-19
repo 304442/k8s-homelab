@@ -5,6 +5,10 @@ metadata:
   namespace: immich
 data:
   Caddyfile: |
+    {
+      email admin@07c.me
+    }
+    
     immich.07c.me {
       reverse_proxy immich-server:3001
       encode gzip
@@ -12,10 +16,6 @@ data:
       log {
         output stdout
         format json
-      }
-      
-      tls {
-        email admin@07c.me
       }
       
       # Handle file uploads
@@ -72,10 +72,8 @@ kind: Service
 metadata:
   name: immich-caddy
   namespace: immich
-  annotations:
-    metallb.universe.tf/allow-shared-ip: "immich-caddy"
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   ports:
   - name: http
     port: 80
