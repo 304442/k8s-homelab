@@ -1,0 +1,25 @@
+all:
+  hosts:
+    homelab:
+      ansible_host: 07c.me
+      ansible_user: root
+      ansible_ssh_pass: JDj99F5k
+      ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+  vars:
+    # Domain configuration
+    domain: 07c.me
+    immich_domain: immich.07c.me
+    
+    # Immich configuration
+    immich_admin_email: admin@07c.me
+    immich_admin_password: admin123
+    immich_jwt_secret: your-jwt-secret-change-this
+    
+    # Database configuration
+    postgres_user: immich
+    postgres_password: immich_password
+    postgres_db: immich
+    
+    # Storage configuration
+    immich_storage_path: /mnt/immich/photos
+    immich_storage_size: 500Gi

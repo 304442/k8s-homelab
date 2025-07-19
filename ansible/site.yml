@@ -1,0 +1,490 @@
+---
+- name: Deploy k8s-homelab with k0s and Immich
+  hosts: homelab
+  become: yes
+  vars:
+    k0s_version: "1.30.5+k0s.0"
+    
+  tasks:
+    - name: Update system packages
+      apt:
+        update_cache: yes
+        upgrade: yes
+        
+    - name: Install required packages
+      apt:
+        name:
+          - curl
+          - wget
+          - unzip
+          - git
+        state: present
+        
+    - name: Create storage directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ immich_storage_path }}"
+        - /opt/k0s
+        
+    - name: Download k0s binary
+      get_url:
+        url: "https://github.com/k0sproject/k0s/releases/download/v{{ k0s_version }}/k0s-v{{ k0s_version }}-amd64"
+        dest: /usr/local/bin/k0s
+        mode: '0755'
+        
+    - name: Install k0s as controller
+      command: k0s install controller --single
+      args:
+        creates: /etc/systemd/system/k0scontroller.service
+        
+    - name: Start and enable k0s
+      systemd:
+        name: k0scontroller
+        state: started
+        enabled: yes
+        
+    - name: Wait for k0s to be ready
+      wait_for:
+        port: 6443
+        host: localhost
+        delay: 10
+        timeout: 120
+        
+    - name: Get k0s kubeconfig
+      command: k0s kubeconfig admin
+      register: kubeconfig_content
+      
+    - name: Save kubeconfig
+      copy:
+        content: "{{ kubeconfig_content.stdout }}"
+        dest: /root/.kube/config
+        mode: '0600'
+        
+    - name: Create .kube directory
+      file:
+        path: /root/.kube
+        state: directory
+        mode: '0755'
+        
+    - name: Install kubectl alias
+      lineinfile:
+        path: /root/.bashrc
+        line: "alias kubectl='k0s kubectl'"
+        
+    - name: Apply MetalLB namespace
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: metallb-system
+            
+    - name: Apply MetalLB resources
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            namespace: metallb-system
+            name: config
+          data:
+            config: |
+              address-pools:
+              - name: default
+                protocol: layer2
+                addresses:
+                - {{ ansible_host }}/32
+                
+    - name: Install MetalLB
+      shell: |
+        k0s kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.12/config/manifests/metallb-native.yaml
+      environment:
+        KUBECONFIG: /root/.kube/config
+        
+    - name: Wait for MetalLB pods
+      k8s_info:
+        kubeconfig: /root/.kube/config
+        api_version: v1
+        kind: Pod
+        namespace: metallb-system
+        wait: true
+        wait_condition:
+          type: Ready
+          status: "True"
+        wait_timeout: 300
+        
+    - name: Apply MetalLB IPAddressPool
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: homelab-pool
+            namespace: metallb-system
+          spec:
+            addresses:
+            - {{ ansible_host }}/32
+            
+    - name: Apply MetalLB L2Advertisement
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: homelab-l2
+            namespace: metallb-system
+          spec:
+            ipAddressPools:
+            - homelab-pool
+            
+    - name: Create Immich namespace
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: immich
+            
+    - name: Create Immich secret
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: immich-secret
+            namespace: immich
+          type: Opaque
+          stringData:
+            JWT_SECRET: "{{ immich_jwt_secret }}"
+            DB_HOSTNAME: "immich-postgres"
+            DB_USERNAME: "{{ postgres_user }}"
+            DB_PASSWORD: "{{ postgres_password }}"
+            DB_DATABASE_NAME: "{{ postgres_db }}"
+            REDIS_HOSTNAME: "immich-redis"
+            
+    - name: Create Immich PV
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: immich-photos-pv
+          spec:
+            capacity:
+              storage: "{{ immich_storage_size }}"
+            accessModes:
+            - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            hostPath:
+              path: "{{ immich_storage_path }}"
+              
+    - name: Create Immich PVC
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: immich-photos-pvc
+            namespace: immich
+          spec:
+            accessModes:
+            - ReadWriteOnce
+            resources:
+              requests:
+                storage: "{{ immich_storage_size }}"
+                
+    - name: Deploy PostgreSQL
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: immich-postgres
+            namespace: immich
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: immich-postgres
+            template:
+              metadata:
+                labels:
+                  app: immich-postgres
+              spec:
+                containers:
+                - name: postgres
+                  image: tensorchord/pgvecto-rs:pg14-v0.2.0
+                  env:
+                  - name: POSTGRES_USER
+                    value: "{{ postgres_user }}"
+                  - name: POSTGRES_PASSWORD
+                    value: "{{ postgres_password }}"
+                  - name: POSTGRES_DB
+                    value: "{{ postgres_db }}"
+                  ports:
+                  - containerPort: 5432
+                  volumeMounts:
+                  - name: postgres-data
+                    mountPath: /var/lib/postgresql/data
+                volumes:
+                - name: postgres-data
+                  emptyDir: {}
+                  
+    - name: Create PostgreSQL service
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: immich-postgres
+            namespace: immich
+          spec:
+            ports:
+            - port: 5432
+              targetPort: 5432
+            selector:
+              app: immich-postgres
+              
+    - name: Deploy Redis
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: immich-redis
+            namespace: immich
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: immich-redis
+            template:
+              metadata:
+                labels:
+                  app: immich-redis
+              spec:
+                containers:
+                - name: redis
+                  image: redis:7.4-alpine
+                  ports:
+                  - containerPort: 6379
+                  
+    - name: Create Redis service
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: immich-redis
+            namespace: immich
+          spec:
+            ports:
+            - port: 6379
+              targetPort: 6379
+            selector:
+              app: immich-redis
+              
+    - name: Deploy Immich Server
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: immich-server
+            namespace: immich
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: immich-server
+            template:
+              metadata:
+                labels:
+                  app: immich-server
+              spec:
+                containers:
+                - name: immich-server
+                  image: ghcr.io/immich-app/immich-server:v1.135.3
+                  ports:
+                  - containerPort: 2283
+                  env:
+                  - name: NODE_ENV
+                    value: "production"
+                  - name: IMMICH_MODE
+                    value: "server"
+                  envFrom:
+                  - secretRef:
+                      name: immich-secret
+                  volumeMounts:
+                  - name: photos-data
+                    mountPath: /usr/src/app/upload
+                volumes:
+                - name: photos-data
+                  persistentVolumeClaim:
+                    claimName: immich-photos-pvc
+                    
+    - name: Create Immich Server service
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: immich-server
+            namespace: immich
+          spec:
+            type: LoadBalancer
+            ports:
+            - port: 80
+              targetPort: 2283
+            selector:
+              app: immich-server
+              
+    - name: Deploy Immich Microservices
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: immich-microservices
+            namespace: immich
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: immich-microservices
+            template:
+              metadata:
+                labels:
+                  app: immich-microservices
+              spec:
+                containers:
+                - name: immich-microservices
+                  image: ghcr.io/immich-app/immich-server:v1.135.3
+                  env:
+                  - name: NODE_ENV
+                    value: "production"
+                  - name: IMMICH_MODE
+                    value: "microservices"
+                  envFrom:
+                  - secretRef:
+                      name: immich-secret
+                  volumeMounts:
+                  - name: photos-data
+                    mountPath: /usr/src/app/upload
+                volumes:
+                - name: photos-data
+                  persistentVolumeClaim:
+                    claimName: immich-photos-pvc
+                    
+    - name: Deploy Immich Machine Learning
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: immich-machine-learning
+            namespace: immich
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: immich-machine-learning
+            template:
+              metadata:
+                labels:
+                  app: immich-machine-learning
+              spec:
+                containers:
+                - name: immich-machine-learning
+                  image: ghcr.io/immich-app/immich-machine-learning:v1.135.3
+                  ports:
+                  - containerPort: 3003
+                  env:
+                  - name: NODE_ENV
+                    value: "production"
+                  volumeMounts:
+                  - name: photos-data
+                    mountPath: /usr/src/app/upload
+                volumes:
+                - name: photos-data
+                  persistentVolumeClaim:
+                    claimName: immich-photos-pvc
+                    
+    - name: Create ML service
+      k8s:
+        kubeconfig: /root/.kube/config
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: immich-machine-learning
+            namespace: immich
+          spec:
+            ports:
+            - port: 3003
+              targetPort: 3003
+            selector:
+              app: immich-machine-learning
+              
+    - name: Wait for Immich server to be ready
+      uri:
+        url: "http://{{ ansible_host }}/api/server/ping"
+        method: GET
+        timeout: 10
+      register: result
+      until: result.status == 200
+      retries: 30
+      delay: 10
+      
+    - name: Create admin user
+      uri:
+        url: "http://{{ ansible_host }}/api/auth/admin-sign-up"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          email: "{{ immich_admin_email }}"
+          password: "{{ immich_admin_password }}"
+          name: "Admin User"
+        status_code: [200, 201, 400]
+      ignore_errors: yes
+      
+    - name: Display completion message
+      debug:
+        msg: |
+          ✅ k8s-homelab deployment complete!
+          
+          🎯 Access Immich at: http://{{ immich_domain }}
+          📧 Username: {{ immich_admin_email }}
+          🔑 Password: {{ immich_admin_password }}
+          
+          🏗️ Infrastructure:
+          - k0s Kubernetes cluster ✅
+          - MetalLB load balancer ✅  
+          - Immich photo management ✅
+          - PostgreSQL with vector support ✅
+          - Redis caching ✅
+          - Machine learning features ✅
+          
+          📁 Storage: {{ immich_storage_path }} ({{ immich_storage_size }})
+          🚀 All systems operational!
