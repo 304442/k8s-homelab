@@ -74,10 +74,26 @@ data:
     {
       admin 0.0.0.0:2019
       email admin@07c.me
-      acme_ca https://acme-v02.api.letsencrypt.org/directory
+      acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
     }
 
-    # Catch-all for ingress rules - will be dynamically updated
+    # Immich photo management
+    immich.07c.me {
+      reverse_proxy immich-server.immich.svc.cluster.local:2283
+      encode gzip
+      
+      log {
+        output stdout
+        format json
+      }
+      
+      # Handle file uploads
+      request_body {
+        max_size 100MB
+      }
+    }
+
+    # Catch-all for other requests
     :80, :443 {
       respond "Caddy Ingress Controller Ready" 200
     }

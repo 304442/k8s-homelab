@@ -1,0 +1,76 @@
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: immich-charts
+  namespace: flux-system
+spec:
+  interval: 1h
+  type: oci
+  url: oci://ghcr.io/immich-app/immich-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: immich
+  namespace: flux-system
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: immich
+      version: ">=0.9.0"
+      sourceRef:
+        kind: HelmRepository
+        name: immich-charts
+        namespace: flux-system
+      interval: 1m
+  targetNamespace: immich
+  install:
+    createNamespace: true
+  values:
+    image:
+      tag: "v1.135.3"
+    
+    env:
+      NODE_ENV: production
+      JWT_SECRET: "your-jwt-secret-change-this"
+      DB_HOSTNAME: "immich-postgres"
+      DB_USERNAME: "immich"
+      DB_PASSWORD: "immich_password"
+      DB_DATABASE_NAME: "immich"
+      REDIS_HOSTNAME: "immich-redis"
+      
+    persistence:
+      library:
+        enabled: true
+        existingClaim: "immich-photos-pvc"
+        
+    redis:
+      enabled: true
+      
+    postgresql:
+      enabled: true
+      global:
+        postgresql:
+          auth:
+            username: immich
+            password: immich_password
+            database: immich
+      primary:
+        persistence:
+          enabled: true
+          size: 8Gi
+          
+    server:
+      enabled: true
+      service:
+        main:
+          ports:
+            http:
+              port: 2283
+              
+    microservices:
+      enabled: true
+      
+    machinelearning:
+      enabled: true
