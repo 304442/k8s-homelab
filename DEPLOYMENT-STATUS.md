@@ -78,4 +78,19 @@ kubectl logs -n caddy-system deployment/caddy-ingress-controller
 - ✅ All issues fixed with logs and RCA
 - ✅ Repository updated throughout process
 
-Generated: $(date)
+## 🔄 **Latest Updates:**
+
+### Immich Deployment Approach
+- **Initial attempt**: Official Helm chart from ghcr.io/immich-app/immich-charts
+- **Issue discovered**: PostgreSQL subchart deprecated, complex PVC binding issues
+- **Solution implemented**: Reverted to improved custom manifests
+- **Result**: Fully functional deployment with proper resource limits
+
+### Current Status (Latest)
+- **API**: ✅ `https://immich.07c.me/api/server/ping` returns `{"res":"pong"}`
+- **Web Interface**: ✅ `https://immich.07c.me` serving HTML properly
+- **All Pods**: ✅ Running (server, microservices, ML, PostgreSQL, Redis)
+- **HTTPS**: ✅ Working with Let's Encrypt staging certificates
+- **Repository**: ✅ All changes committed and documented
+
+Generated: July 19, 2025 - 01:52 UTC
