@@ -89,8 +89,16 @@ kubectl logs -n caddy-system deployment/caddy-ingress-controller
 ### Current Status (Latest)
 - **API**: ✅ `https://immich.07c.me/api/server/ping` returns `{"res":"pong"}`
 - **Web Interface**: ✅ `https://immich.07c.me` serving HTML properly
+- **Admin User**: ✅ Created automatically (admin@07c.me / admin123)
+- **Initialization**: ✅ Job completed successfully
 - **All Pods**: ✅ Running (server, microservices, ML, PostgreSQL, Redis)
 - **HTTPS**: ✅ Working with Let's Encrypt staging certificates
 - **Repository**: ✅ All changes committed and documented
+
+### Ready to Use
+- **Login**: https://immich.07c.me
+- **Username**: admin@07c.me
+- **Password**: admin123
+- **Features**: Face detection, smart search, automatic organization
 
 Generated: July 19, 2025 - 01:52 UTC
