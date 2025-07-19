@@ -6,3 +6,5 @@ resources:
 - postgresql.yaml
 - redis.yaml
 - immich.yaml
+- immich-config.yaml
+- init-job.yaml
