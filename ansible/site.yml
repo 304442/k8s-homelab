@@ -18,6 +18,9 @@
           - wget
           - unzip
           - git
+          - apt-transport-https
+          - ca-certificates
+          - gnupg
         state: present
         
     - name: Create storage directories
@@ -69,10 +72,95 @@
         state: directory
         mode: '0755'
         
-    - name: Install kubectl alias
+    - name: Add Kubernetes APT repository key
+      apt_key:
+        url: https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key
+        keyring: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        state: present
+        
+    - name: Add Kubernetes APT repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /"
+        filename: kubernetes
+        state: present
+        
+    - name: Update APT cache after adding Kubernetes repository
+      apt:
+        update_cache: yes
+        
+    - name: Install kubectl
+      apt:
+        name: kubectl
+        state: present
+        
+    - name: Download and install k9s
+      block:
+        - name: Get k9s latest release info
+          uri:
+            url: https://api.github.com/repos/derailed/k9s/releases/latest
+            return_content: yes
+          register: k9s_release
+          
+        - name: Download k9s binary
+          get_url:
+            url: "{{ (k9s_release.content | from_json).assets | selectattr('name', 'match', '.*Linux_amd64.tar.gz$') | map(attribute='browser_download_url') | first }}"
+            dest: /tmp/k9s.tar.gz
+            mode: '0644'
+            
+        - name: Extract k9s
+          unarchive:
+            src: /tmp/k9s.tar.gz
+            dest: /tmp
+            remote_src: yes
+            
+        - name: Install k9s binary
+          copy:
+            src: /tmp/k9s
+            dest: /usr/local/bin/k9s
+            mode: '0755'
+            remote_src: yes
+            
+        - name: Clean up k9s download
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /tmp/k9s.tar.gz
+            - /tmp/k9s
+            - /tmp/LICENSE
+            - /tmp/README.md
+            
+    - name: Set up kubeconfig for kubectl
+      copy:
+        content: "{{ kubeconfig_content.stdout }}"
+        dest: /root/.kube/config
+        mode: '0600'
+        
+    - name: Create kubectl completion
+      shell: kubectl completion bash > /etc/bash_completion.d/kubectl
+      
+    - name: Create k9s config directory
+      file:
+        path: /root/.config/k9s
+        state: directory
+        mode: '0755'
+        
+    - name: Add useful aliases to bashrc
       lineinfile:
         path: /root/.bashrc
-        line: "alias kubectl='k0s kubectl'"
+        line: "{{ item }}"
+      loop:
+        - "alias k='kubectl'"
+        - "alias kgp='kubectl get pods'"
+        - "alias kgs='kubectl get svc'"
+        - "alias kgd='kubectl get deployments'"
+        - "alias kgn='kubectl get nodes'"
+        - "alias kga='kubectl get all'"
+        - "alias kdp='kubectl describe pod'"
+        - "alias kds='kubectl describe svc'"
+        - "alias kl='kubectl logs'"
+        - "alias ke='kubectl edit'"
+        - "complete -F __start_kubectl k"
         
     - name: Apply MetalLB namespace
       k8s:
@@ -486,5 +574,16 @@
           - Redis caching ✅
           - Machine learning features ✅
           
+          🛠️ Management Tools Installed:
+          - kubectl (Kubernetes CLI) ✅
+          - k9s (Terminal UI for Kubernetes) ✅
+          - Useful kubectl aliases (k, kgp, kgs, etc.) ✅
+          
           📁 Storage: {{ immich_storage_path }} ({{ immich_storage_size }})
-          🚀 All systems operational!
+          
+          🚀 Management Commands:
+          - kubectl get pods -A (check all pods)
+          - k9s (interactive cluster management)
+          - k get pods (shortcut for kubectl get pods)
+          
+          🎉 All systems operational!
