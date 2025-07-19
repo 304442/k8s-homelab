@@ -7,7 +7,7 @@ spec:
   interval: 10m0s
   sourceRef:
     kind: GitRepository
-    name: flux-system
+    name: k8s-homelab
   path: "./infrastructure"
   prune: true
   wait: true
@@ -22,7 +22,7 @@ spec:
   interval: 10m0s
   sourceRef:
     kind: GitRepository
-    name: flux-system
+    name: k8s-homelab
   path: "./infrastructure/networking-config"
   prune: true
   wait: true
